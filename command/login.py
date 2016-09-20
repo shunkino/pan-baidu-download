@@ -5,11 +5,11 @@ from time import time
 import json
 import re
 import os
-import pickle
 
 from requests import Session
 import requests.utils
 
+import util
 from util import logger
 from config import global_config
 
@@ -22,7 +22,7 @@ class BaiduAccount(object):
                       '(KHTML, like Gecko) Chrome/32.0.1700.77 Safari/537.36',
     }
 
-    def __init__(self, username, passwd, cookie_filename):
+    def __init__(self, username, passwd):
         """
         Login and save cookies to file.
 
@@ -31,12 +31,10 @@ class BaiduAccount(object):
         :type cookie_filename: str
         :param username: Baidu username.
         :param passwd: Baidu account password.
-        :param cookie_filename: cookies file name.
         :return: None
         """
         self.username = username
         self.passwd = passwd
-        self.cookie_filename = cookie_filename
         self.session = Session()
         self.codestring = ''
         self._time = int(time())
@@ -45,6 +43,7 @@ class BaiduAccount(object):
                           '&username={self.username}&time={self._time}'.format(self=self)
         self._token_url = 'https://passport.baidu.com/v2/api/?getapi&class=login&tpl=mn&tangram=true'
         self._post_url = 'https://passport.baidu.com/v2/api/?login'
+        self._genimage_url = 'https://passport.baidu.com/cgi-bin/genimage?{code}'
         # debug:
         # self._post_url = 'http://httpbin.org/post'
         self.token = ''
@@ -65,9 +64,19 @@ class BaiduAccount(object):
         data = json.loads(s[s.index('{'):-1])
         log_message = {'type': 'check loging verify code', 'method': 'GET'}
         logger.debug(data, extra=log_message)
-        # TODO: 验证码
-        if data.get('errno'):
+        if data.get('codestring'):
             self.codestring = data.get('codestring')
+
+    def _handle_verify_code(self):
+        """Save verify code to filesystem and prompt user to input."""
+        r = self.session.get(self._genimage_url.format(code=self.codestring))
+        # TODO: Handle different verify code image format: jpg or gif
+        img_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'vcode.png')
+        with open(img_path, mode='wb') as fp:
+            fp.write(r.content)
+        print("Saved verification code to {}".format(os.path.dirname(img_path)))
+        vcode = raw_input("Please input the captcha:\n")
+        return vcode
 
     def _get_token(self):
         """Get bdstoken."""
@@ -81,13 +90,13 @@ class BaiduAccount(object):
         except:
             raise GetTokenError("Can't get the token")
 
-    def _post_data(self):
+    def _post_data(self, code):
         """Post login form."""
-        post_data = {'ppui_logintime': '9379', 'charset': 'utf-8', 'codestring': '', 'token': self.token,
+        post_data = {'ppui_logintime': '9379', 'charset': 'utf-8', 'codestring': self.codestring, 'token': self.token,
                      'isPhone': 'false', 'index': '0', 'u': '', 'safeflg': 0,
                      'staticpage': 'http://www.baidu.com/cache/user/html/jump.html', 'loginType': '1', 'tpl': 'mn',
                      'callback': 'parent.bdPass.api.login._postCallback', 'username': self.username,
-                     'password': self.passwd, 'verifycode': '', 'mem_pass': 'on'}
+                     'password': self.passwd, 'verifycode': code, 'mem_pass': 'on'}
         # post_data = urlencode(post_data)
         log_message = {'type': 'login post data', 'method': 'POST'}
         logger.debug(post_data, extra=log_message)
@@ -95,26 +104,30 @@ class BaiduAccount(object):
         s = response.text
         log_message = {'type': 'response', 'method': 'POST'}
         logger.debug(s, extra=log_message)
-        self.bduss = response.cookies.get("BDUSS")
-        log_message = {'type': 'BDUSS', 'method': 'GET'}
-        logger.debug(self.bduss, extra=log_message)
-        return s
-
-    def _save_cookies(self):
-        with open(self.cookie_filename, 'w') as f:
-            pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), f)
+        if 'error=257' in s:
+            try:
+                self.codestring = re.findall('codestring=(.*?)&', s)[0]
+                captcha = self._handle_verify_code()
+                self._post_data(captcha)
+            except Exception:
+                raise LoginError('获取登录验证码失败')
+        else:
+            self.bduss = response.cookies.get("BDUSS")
+            log_message = {'type': 'BDUSS', 'method': 'GET'}
+            logger.debug(self.bduss, extra=log_message)
+            return s
 
     def login(self):
+        code = ''
         self._get_baidu_uid()
         self._check_verify_code()
         if self.codestring:
-            # TODO: 验证码处理
-            pass
+            code = self._handle_verify_code()
         self._get_token()
-        self._post_data()
-        if not self.bduss and not self.baiduid:
+        self._post_data(code)
+        if not self.bduss or not self.baiduid:
             raise LoginError('登陆异常')
-        self._save_cookies()
+        util.save_cookies(self.session.cookies)
 
     def load_cookies_from_file(self):
         """Load cookies file if file exist."""
@@ -153,7 +166,6 @@ def login(args):
         passwd = global_config.password
     if not username and not passwd:
         raise LoginError('请输入你的帐号密码！')
-    cookies = global_config.cookies
-    account = BaiduAccount(username, passwd, cookies)
+    account = BaiduAccount(username, passwd)
     account.login()
     print("Saving session to {}".format(cookies))
