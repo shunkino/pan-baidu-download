@@ -5,7 +5,7 @@ import os
 import sys
 import ConfigParser
 
-command = ('limit', 'dir', 'cookies', 'username', 'password', 'jsonrpc', 'jsonrpc_user', 'jsonrpc_pass')
+command = ('limit', 'dir', 'from_file', 'dl_all', 'cookies', 'username', 'password', 'jsonrpc', 'jsonrpc_user', 'jsonrpc_pass')
 
 
 class Config(object):

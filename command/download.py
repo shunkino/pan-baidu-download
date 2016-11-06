@@ -64,13 +64,25 @@ def select_download(fis):
 
     return selected_fis
 
+def get_links_from_file(link_file_name, sep):
+    # sep is hare to prepare for csv support. 
+    pan_links = []
+    file = open(link_file_name)
+    pan_links = file.readlines()
+    return pan_links 
+    
+
 def download(args):
     limit = global_config.limit
     output_dir = global_config.dir
+    dl_all = global_config.dl_all
+    link_file = global_config.link_file
     parser = argparse.ArgumentParser(description="download command arg parser")
     parser.add_argument('-L', '--limit', action="store", dest='limit', help="Max download speed limit.")
     parser.add_argument('-D', '--dir', action="store", dest='output_dir', help="Download task to dir.")
+    parser.add_argument('-F', '--file', action="store", dest='link_file', help="Get list from file.")
     parser.add_argument('-S', '--secret', action="store", dest='secret', help="Retrieval password.", default="")
+    parser.add_argument('-A', '--all', action="store_true", dest='dl_all', help="Download all files without asking.", default=False)
     if not args:
         parser.print_help()
         exit(1)
@@ -80,7 +92,16 @@ def download(args):
         limit = namespace.limit
     if namespace.output_dir:
         output_dir = namespace.output_dir
+    if namespace.link_file:
+        # while using batch mode, automatically download all files.
+        dl_all = True
+        link_file = namespace.link_file
+    if namespace.dl_all:
+        dl_all = namespace.dl_all
 
+    # get file lists from file.
+    links = get_links_from_file(link_file, "\n")
+    print(links)
     # if is wap
     links = [link.replace("wap/link", "share/link") for link in links]
     # add 'http://'
@@ -93,10 +114,13 @@ def download(args):
             fis = pan.get_file_infos(url, secret)
 
             while True:
+                if dl_all:
+                    break
                 fis = select_download(fis)
                 if fis is not None:
                     break
 
+            print(fis)
             for fi in fis:
                 cookies = 'BDUSS={0}'.format(pan.bduss) if pan.bduss else ''
                 if cookies and pan.pcsett:
