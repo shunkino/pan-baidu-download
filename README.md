@@ -65,6 +65,8 @@ pan download [options] [BaiduPan-url]...
 Options:
     --limit=[speed]             Max download speed limit.
     --dir=[dir]                 Download task to dir.
+	--file=[file]               Get download links from file.
+	--all						Download files included in links without asking.
 ```
 
     pan download pan-baidu-url
